@@ -1,92 +1,81 @@
 # ErrorLogEndpointRequest
 
-A Cloudflare Worker endpoint. Every request creates a new **raw text** log file in a GitHub repo
-(`logs/{TimeSnap}-{id}Delta.log`) containing exactly the text you sent, and the response is always JSON. The GitHub token is stored
-as a Cloudflare **secret**, so it never appears in the code or the repo.
+A POST-only Cloudflare Worker. You send a **JSON** request; it saves the text as a **raw .log file**
+in a GitHub repo and answers in **plain text** (never JSON). The GitHub token is stored as a
+Cloudflare **secret**, so it never appears in the code or the repo.
 
-## Step-by-step setup
+## Request
 
-### 1. Have a repo to store the logs
-Create (or reuse) a GitHub repo, for example `ErrorLogReport`, and push it so it exists on GitHub
-with a `main` branch (it needs at least one commit).
+`POST` to any path, body is JSON:
 
-### 2. Create a fine-grained GitHub token
-1. GitHub -> Settings -> Developer settings -> Personal access tokens -> **Fine-grained tokens** -> Generate new token.
-2. Repository access: **Only select repositories** -> pick `ErrorLogReport`.
-3. Permissions -> Repository permissions -> **Contents: Read and write**. Leave everything else off.
-4. Set a short expiry (e.g. 90 days), generate, and copy the token (starts with `github_pat_`). You only see it once.
+| Field | Required | Meaning |
+|---|---|---|
+| `Log` | yes | The text saved in the log file. If it is not a string (an object, say) it is saved as formatted JSON text. |
+| `UseFolder` | no | Folder or path inside the log root, e.g. `"checkout"` or `"app/errors/payments"`. Created automatically. Letters, numbers, `. _ -` and `/`, up to 5 levels. |
+| `UseFileName` | no | File name without extension (`.log` is added). Letters, numbers, `. _ -`. |
 
-### 3. Install the project
+Field names are not case-sensitive.
+
 ```bash
-npm install
-npx wrangler login      # opens a browser to sign in to Cloudflare
+curl -X POST https://<your-worker>.workers.dev/ \
+  -H "content-type: application/json" \
+  -d '{"UseFolder":"checkout","UseFileName":"payment","Log":"ERROR card declined (code 402)"}'
 ```
 
-### 4. Set your non-secret config
-Edit `wrangler.toml` and set `GITHUB_OWNER` to your GitHub username (and `GITHUB_REPO` / `GITHUB_BRANCH` if different).
+Add `-H "x-api-key: YOUR_KEY"` if you set the `LOG_API_KEY` secret.
 
-### 5. Store the secrets in Cloudflare
-```bash
-npx wrangler secret put GITHUB_TOKEN   # paste the github_pat_... token when prompted
-npx wrangler secret put LOG_API_KEY    # paste any long random string; callers must send it
-```
-Generate a random key with: `openssl rand -hex 32`
+## Where the file goes
 
-Dashboard alternative: Workers & Pages -> your Worker -> Settings -> Variables and Secrets -> Add -> type **Secret**.
+`{LogRoot}/{UseFolder}/{file}.log`, with `LogRoot` = `logs` by default.
 
-### 6. (Optional) Test locally
-```bash
-cp .dev.vars.example .dev.vars   # fill in real values; this file is git-ignored
-npm run dev
-curl -X POST http://localhost:8787/report -H "x-api-key: YOUR_KEY" -H "content-type: text/plain" -d 'ERROR boom at checkout'
-```
+## Site config (config.json)
 
-### 7. Deploy
-```bash
-npm run deploy
-```
-Wrangler prints your URL, like `https://error-log-endpoint-request.<your-subdomain>.workers.dev`.
-
-### 8. Send a request
-```bash
-curl -X POST https://error-log-endpoint-request.<your-subdomain>.workers.dev/report \
-  -H "x-api-key: YOUR_KEY" \
-  -H "content-type: text/plain" \
-  -d 'ERROR Something failed (code 500)'
-```
-
-Send a whole text file as the log:
-```bash
-curl -X POST https://error-log-endpoint-request.<your-subdomain>.workers.dev/report \
-  -H "x-api-key: YOUR_KEY" -H "content-type: text/plain" --data-binary @error.txt
-```
-
-The log file in GitHub contains the text exactly as sent. If a request has no body, the file holds one
-line: timestamp, method and path.
-
-## JSON responses
-
-Success (`201`):
 ```json
 {
-  "ok": true,
-  "service": "ErrorLogEndpointRequest",
-  "version": "1.1.0",
-  "id": "a1b2c3",
-  "file": "logs/20261028T211700123Z-a1b2c3Delta.log",
-  "bytes": 34,
-  "truncated": false,
-  "receivedAt": "2026-10-28T21:17:00.123Z",
-  "commit": "<sha>"
+  "TimeSnap": true,
+  "LogRoot": "logs"
 }
 ```
 
-Errors: `401 {"ok":false,"error":"unauthorized"}`, `500 {"ok":false,"error":"server_not_configured"}`,
-`502 {"ok":false,"error":"log_write_failed",...}`. `GET /health` returns `{"ok":true,...}` and writes no log.
+These are site settings. They **cannot be changed by an HTTP request**. Edit `config.json`, push, and the Worker redeploys.
+
+| `TimeSnap` | File name | Repeat requests |
+|---|---|---|
+| `true` (default) | `20261029T043700123Z-{UseFileName}.log` (or `...-{random id}.log` when no name) | Every request makes a new file |
+| `false` | `{UseFileName}.log` (or `{random id}.log` when no name) | Requests with the same folder and name **append** to one file |
+
+## Response (plain text)
+
+Success, status `201`:
+```
+OK
+file: logs/checkout/20261029T043700123Z-payment.log
+mode: created
+bytes: 33
+time: 2026-10-29T04:37:00.123Z
+commit: <sha>
+```
+
+Errors are also plain text, starting with `ERROR <status> <reason>`:
+`405` not POST, `401` wrong or missing key, `400` bad JSON / missing `Log` / bad `UseFolder` or `UseFileName`,
+`413` body over 100 KB, `500` not configured, `502` GitHub write failed.
+
+## Setup (step by step)
+
+1. **Log repo**: create a GitHub repo (e.g. `ErrorLogReport`) with a `main` branch (at least one commit).
+2. **Token**: GitHub -> Settings -> Developer settings -> Fine-grained tokens -> Generate new token.
+   Only select repositories -> your log repo. Permissions -> **Contents: Read and write**. Short expiry. Copy it.
+3. **Install**: `npm install` then `npx wrangler login`.
+4. **Variables** (plain text, in `wrangler.toml` or the dashboard): `GITHUB_OWNER`, `GITHUB_REPO`, `GITHUB_BRANCH`.
+5. **Secrets**: `npx wrangler secret put GITHUB_TOKEN`, and optionally `npx wrangler secret put LOG_API_KEY`
+   (dashboard: Worker -> Settings -> Variables and Secrets -> type Secret).
+6. **Deploy**: `npm run deploy`, or connect the GitHub repo in Cloudflare so every push redeploys.
+7. **Local test**: copy `.dev.vars.example` to `.dev.vars`, fill it in, run `npm run dev`.
 
 ## Security notes
-- Never put the token in `wrangler.toml`, the code, or git. Only `wrangler secret put` or `.dev.vars` (ignored).
+- Never put the token in `wrangler.toml`, the code, or git. Use `wrangler secret put` or `.dev.vars` (git-ignored).
 - The token only has Contents access to the one log repo. Rotate it before it expires.
-- `LOG_API_KEY` stops strangers from filling your repo with logs. Without it, anyone who finds the URL can write logs.
-- Only the request body text is saved (no headers), so the API key and cookies never reach the log. Bodies are cut at 100 KB.
-- Don't send passwords or tokens in the text you log: the repo is public unless you make it private.
+- Without `LOG_API_KEY`, anyone who finds the URL can write logs into your repo.
+- Only the `Log` text is saved. Headers (including the API key) are never written to the log.
+- Folder and file names are validated, so requests cannot write outside the log root.
+- The log repo is public unless you make it private. Don't log passwords or tokens.

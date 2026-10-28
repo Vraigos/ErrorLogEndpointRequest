@@ -4,7 +4,7 @@ compatibility_date = "2026-10-01"
 
 # Non-secret settings. Change these to your own GitHub account and log repo.
 [vars]
-GITHUB_OWNER = "YOUR_GITHUB_USERNAME"
+GITHUB_OWNER = "Vraigos"
 GITHUB_REPO = "ErrorLogReport"
 GITHUB_BRANCH = "main"
 

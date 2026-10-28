@@ -1,0 +1,13 @@
+name = "error-log-endpoint-request"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+# Non-secret settings. Change these to your own GitHub account and log repo.
+[vars]
+GITHUB_OWNER = "YOUR_GITHUB_USERNAME"
+GITHUB_REPO = "ErrorLogReport"
+GITHUB_BRANCH = "main"
+
+# Secrets are NOT stored here. Set them with:
+#   npx wrangler secret put GITHUB_TOKEN
+#   npx wrangler secret put LOG_API_KEY

@@ -12,7 +12,6 @@ import config from "../config.json";
 const SERVICE = "ErrorLogEndpointRequest";
 const VERSION = "2.0.0";
 const MAX_BODY_CHARS = 100 * 1024;
-const MAX_FOLDER_DEPTH = 5;
 
 const TIME_SNAP = config.TimeSnap !== false; // default true
 const LOG_ROOT = typeof config.LogRoot === "string" && config.LogRoot ? config.LogRoot : "logs";
@@ -59,7 +58,6 @@ function cleanFolder(v) {
   if (v === undefined || v === null || v === "") return "";
   if (typeof v !== "string") return null;
   const parts = v.replace(/\\/g, "/").split("/").map((s) => s.trim()).filter(Boolean);
-  if (parts.length > MAX_FOLDER_DEPTH) return null;
   for (const p of parts) {
     if (!/^[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}$/.test(p)) return null; // no leading dot, no ".."
   }
@@ -161,7 +159,7 @@ export default {
     const folder = cleanFolder(pick(payload, "UseFolder"));
     if (folder === null) {
       return text(
-        `ERROR 400 invalid_UseFolder\nUse letters, numbers, . _ - and "/" for sub-folders (max ${MAX_FOLDER_DEPTH} levels).`,
+        `ERROR 400 invalid_UseFolder\nUse letters, numbers, . _ - and "/" for sub-folders.`,
         400
       );
     }

@@ -11,7 +11,7 @@ Cloudflare **secret**, so it never appears in the code or the repo.
 | Field | Required | Meaning |
 |---|---|---|
 | `Log` | yes | The text saved in the log file. If it is not a string (an object, say) it is saved as formatted JSON text. |
-| `UseFolder` | no | Folder or path inside the log root, e.g. `"checkout"` or `"app/errors/payments"`. Created automatically. Letters, numbers, `. _ -` and `/`, up to 5 levels. |
+| `UseFolder` | no | Folder or path inside the log root, e.g. `"checkout"` or `"app/errors/payments"`. Created automatically. Letters, numbers, `. _ -` and `/`, any number of levels. |
 | `UseFileName` | no | File name without extension (`.log` is added). Letters, numbers, `. _ -`. |
 
 Field names are not case-sensitive.

@@ -1,4 +1,4 @@
-name = "error-log-endpoint-request"
+name = "darahub-errorlogendpointrequest"
 main = "src/index.js"
 compatibility_date = "2026-10-01"
 

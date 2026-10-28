@@ -1,17 +1,10 @@
 // ErrorLogEndpointRequest
-// A Cloudflare Worker that writes one log file to a GitHub repo for every request,
-// and always answers in JSON.
+// A Cloudflare Worker that saves the raw text of every request as a .log file in a GitHub repo.
+// The log file is plain text (exactly what the caller sent). The response is always JSON.
 
 const SERVICE = "ErrorLogEndpointRequest";
-const VERSION = "1.0.0";
-const MAX_BODY_BYTES = 10 * 1024;
-const REDACTED_HEADERS = new Set([
-  "authorization",
-  "cookie",
-  "set-cookie",
-  "x-api-key",
-  "cf-access-jwt-assertion",
-]);
+const VERSION = "1.1.0";
+const MAX_BODY_CHARS = 100 * 1024;
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data, null, 2), {
@@ -37,18 +30,6 @@ const toBase64 = (text) => {
   for (const b of bytes) bin += String.fromCharCode(b);
   return btoa(bin);
 };
-
-const safeHeaders = (headers) => {
-  const out = {};
-  for (const [k, v] of headers) out[k] = REDACTED_HEADERS.has(k.toLowerCase()) ? "[redacted]" : v;
-  return out;
-};
-
-async function readBody(request) {
-  if (request.method === "GET" || request.method === "HEAD") return null;
-  const text = await request.text();
-  return text.length > MAX_BODY_BYTES ? text.slice(0, MAX_BODY_BYTES) + "...[truncated]" : text;
-}
 
 async function commitLog(env, path, content, message) {
   const branch = env.GITHUB_BRANCH || "main";
@@ -94,28 +75,24 @@ export default {
     const fileName = `${timeSnap(now)}-${id}Delta.log`;
     const path = `logs/${fileName}`;
 
-    const entry = {
-      id,
-      receivedAt: now.toISOString(),
-      method: request.method,
-      path: url.pathname,
-      query: Object.fromEntries(url.searchParams),
-      headers: safeHeaders(request.headers),
-      body: await readBody(request),
-      cf: {
-        country: request.cf?.country ?? null,
-        colo: request.cf?.colo ?? null,
-        asn: request.cf?.asn ?? null,
-      },
-    };
+    // The log file is the raw text the caller sent. With no body (e.g. GET),
+    // it falls back to a single plain-text line describing the request.
+    let text = "";
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      text = await request.text();
+    }
+    let truncated = false;
+    if (text.length > MAX_BODY_CHARS) {
+      text = text.slice(0, MAX_BODY_CHARS);
+      truncated = true;
+    }
+    if (text.trim() === "") {
+      text = `${now.toISOString()} ${request.method} ${url.pathname}${url.search}`;
+    }
+    const content = text.endsWith("\n") ? text : text + "\n";
 
     try {
-      const result = await commitLog(
-        env,
-        path,
-        JSON.stringify(entry, null, 2) + "\n",
-        `log: ${fileName}`
-      );
+      const result = await commitLog(env, path, content, `log: ${fileName}`);
       return json(
         {
           ok: true,
@@ -123,7 +100,9 @@ export default {
           version: VERSION,
           id,
           file: path,
-          receivedAt: entry.receivedAt,
+          bytes: new TextEncoder().encode(content).length,
+          truncated,
+          receivedAt: now.toISOString(),
           commit: result.commit?.sha ?? null,
         },
         201

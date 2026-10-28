@@ -1,7 +1,7 @@
 # ErrorLogEndpointRequest
 
-A Cloudflare Worker endpoint. Every request creates a new log file in a GitHub repo
-(`logs/{TimeSnap}-{id}Delta.log`) and the response is always JSON. The GitHub token is stored
+A Cloudflare Worker endpoint. Every request creates a new **raw text** log file in a GitHub repo
+(`logs/{TimeSnap}-{id}Delta.log`) containing exactly the text you sent, and the response is always JSON. The GitHub token is stored
 as a Cloudflare **secret**, so it never appears in the code or the repo.
 
 ## Step-by-step setup
@@ -38,7 +38,7 @@ Dashboard alternative: Workers & Pages -> your Worker -> Settings -> Variables a
 ```bash
 cp .dev.vars.example .dev.vars   # fill in real values; this file is git-ignored
 npm run dev
-curl -X POST http://localhost:8787/report -H "x-api-key: YOUR_KEY" -d '{"error":"boom"}'
+curl -X POST http://localhost:8787/report -H "x-api-key: YOUR_KEY" -H "content-type: text/plain" -d 'ERROR boom at checkout'
 ```
 
 ### 7. Deploy
@@ -51,9 +51,18 @@ Wrangler prints your URL, like `https://error-log-endpoint-request.<your-subdoma
 ```bash
 curl -X POST https://error-log-endpoint-request.<your-subdomain>.workers.dev/report \
   -H "x-api-key: YOUR_KEY" \
-  -H "content-type: application/json" \
-  -d '{"error":"Something failed","code":500}'
+  -H "content-type: text/plain" \
+  -d 'ERROR Something failed (code 500)'
 ```
+
+Send a whole text file as the log:
+```bash
+curl -X POST https://error-log-endpoint-request.<your-subdomain>.workers.dev/report \
+  -H "x-api-key: YOUR_KEY" -H "content-type: text/plain" --data-binary @error.txt
+```
+
+The log file in GitHub contains the text exactly as sent. If a request has no body, the file holds one
+line: timestamp, method and path.
 
 ## JSON responses
 
@@ -62,9 +71,11 @@ Success (`201`):
 {
   "ok": true,
   "service": "ErrorLogEndpointRequest",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "id": "a1b2c3",
   "file": "logs/20261028T211700123Z-a1b2c3Delta.log",
+  "bytes": 34,
+  "truncated": false,
   "receivedAt": "2026-10-28T21:17:00.123Z",
   "commit": "<sha>"
 }
@@ -77,4 +88,5 @@ Errors: `401 {"ok":false,"error":"unauthorized"}`, `500 {"ok":false,"error":"ser
 - Never put the token in `wrangler.toml`, the code, or git. Only `wrangler secret put` or `.dev.vars` (ignored).
 - The token only has Contents access to the one log repo. Rotate it before it expires.
 - `LOG_API_KEY` stops strangers from filling your repo with logs. Without it, anyone who finds the URL can write logs.
-- Headers like `authorization`, `cookie` and `x-api-key` are redacted before logging; bodies are cut at 10 KB.
+- Only the request body text is saved (no headers), so the API key and cookies never reach the log. Bodies are cut at 100 KB.
+- Don't send passwords or tokens in the text you log: the repo is public unless you make it private.
